@@ -1,8 +1,12 @@
 {
   "name": "sap-cli",
   "version": "1.0.0",
-  "description": "Agent Party 全局命令行工具 (sap)",
-  "author": "Super Agent Party",
+  "description": "Agent Party CLI tool (sap)",
+  "description_zh":"Agent Party CLI工具（sap）",
+  "author": "heshengtao",
+  "repository": "https://github.com/heshengtao/sap-cli",
+  "backupRepository": "https://gitee.com/heshengtao/sap-cli",
+  "category": "Development",
   "main": "index.js",
   "bin": {
     "sap": "./cli.js"
