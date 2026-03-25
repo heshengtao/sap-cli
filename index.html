@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SAP CLI 控制台</title>
+    <!-- 引入 FontAwesome 图标 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            /* 提取自你的深色高对比主题 */
+            --bg: #1e1f20;
+            --bg-card: #25262a;
+            --bg-input: #1a1b1e;
+            --text: #e8e8e8;
+            --text-light: #8a8f9b;
+            --accent: #00c2a8;
+            --accent-hover: #00a896;
+            --border: #333538;
+            --danger: #ff5c5c;
+            --danger-hover: #e04a4a;
+            --radius: 12px;
+            --shadow: 0 8px 24px rgba(0,0,0,.36);
+            --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: var(--font); }
+        
+        body {
+            background: var(--bg);
+            color: var(--text);
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            min-height: 100vh;
+            padding: 40px 20px;
+            font-size: 15px;
+            line-height: 1.6;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 680px;
+            background: var(--bg-card);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            border: 1px solid var(--border);
+            overflow: hidden;
+        }
+
+        /* 顶部标题栏 */
+        .header {
+            background: rgba(0, 0, 0, 0.2);
+            padding: 20px 24px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .header i { font-size: 24px; color: var(--accent); }
+        .header h2 { font-size: 18px; font-weight: 600; margin: 0; }
+
+        .content { padding: 24px; }
+
+        /* 信息提示框 */
+        .alert {
+            background: rgba(0, 194, 168, 0.1);
+            border: 1px solid rgba(0, 194, 168, 0.3);
+            color: #bbf0e8;
+            padding: 14px 18px;
+            border-radius: 8px;
+            margin-bottom: 24px;
+            display: flex;
+            gap: 12px;
+            align-items: flex-start;
+        }
+        .alert i { margin-top: 3px; color: var(--accent); }
+
+        /* 布局行 */
+        .row {
+            margin-bottom: 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .col-left { flex: 1; }
+        .label { font-weight: 600; display: block; margin-bottom: 6px; }
+        .sub-label { color: var(--text-light); font-size: 13px; }
+
+        /* 状态标签 */
+        .badge {
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .badge.offline { background: #3c3d40; color: #a0a0a0; }
+        .badge.online { background: rgba(0, 194, 168, 0.15); color: var(--accent); border: 1px solid rgba(0, 194, 168, 0.3); }
+        .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+        .online .dot { box-shadow: 0 0 8px var(--accent); animation: pulse 2s infinite; }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.4; }
+            100% { opacity: 1; }
+        }
+
+        /* 输入框组合 */
+        .input-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 8px;
+        }
+        input[type="text"] {
+            flex: 1;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 10px 16px;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border 0.2s;
+        }
+        input[type="text"]:focus { outline: none; border-color: var(--accent); }
+        
+        /* 按钮样式 */
+        .btn {
+            border: none;
+            padding: 10px 18px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+        
+        .btn-outline {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text);
+        }
+        .btn-outline:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+            color: #fff;
+        }
+        .btn-primary:hover:not(:disabled) { filter: brightness(1.1); box-shadow: 0 4px 12px rgba(0, 194, 168, 0.3); }
+
+        .btn-danger { background: var(--danger); color: #fff; }
+        .btn-danger:hover:not(:disabled) { background: var(--danger-hover); }
+
+        hr { border: 0; border-top: 1px solid var(--border); margin: 24px 0; }
+
+        /* 底部操作区 */
+        .action-area {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--bg-input);
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+        .action-text h4 { margin-bottom: 4px; font-size: 16px; }
+        .action-text p { color: var(--text-light); font-size: 13px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="header">
+        <i class="fa-solid fa-terminal"></i>
+        <h2>SAP 全局命令行工具 (CLI)</h2>
+    </div>
+
+    <div class="content">
+        <div class="alert">
+            <i class="fa-solid fa-circle-info"></i>
+            <div>
+                <strong>终端伴侣</strong><br>
+                启用此功能后，你可以在电脑的任意终端（CMD, PowerShell, Mac Terminal）直接使用 <code>sap</code> 命令与你的 Agent 进行深度对话。
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-left">
+                <span class="label">挂载状态</span>
+                <span class="sub-label">决定 sap 命令是否在系统中可用</span>
+            </div>
+            <div>
+                <span id="cliStatus" class="badge offline"><div class="dot"></div><span>检测中...</span></span>
+            </div>
+        </div>
+
+        <div class="row" style="display: block;">
+            <div class="col-left">
+                <span class="label">当前软件通信地址 (Base URL)</span>
+                <span class="sub-label">CLI 将通过此地址连接到当前运行的 Agent Party</span>
+            </div>
+            <div class="input-group">
+                <input type="text" id="backendUrl" placeholder="例如: http://127.0.0.1:3456">
+                <button class="btn btn-outline" id="saveUrlBtn"><i class="fa-solid fa-save"></i> 更新地址</button>
+            </div>
+        </div>
+
+        <hr>
+
+        <div class="action-area">
+            <div class="action-text">
+                <h4>全局命令注册</h4>
+                <p id="toggleDesc">点击右侧按钮，将 sap 注册到环境变量中。</p>
+            </div>
+            <button id="toggleBtn" class="btn btn-primary">
+                <i class="fa-solid fa-bolt"></i> <span id="toggleText">挂载 CLI</span>
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+    // 自动提取扩展 ID
+    const pathParts = window.location.pathname.split('/');
+    const extIndex = pathParts.indexOf('extensions');
+    const extId = extIndex !== -1 ? pathParts[extIndex + 1] : 'sap-cli';
+    
+    // 生成调用 Node 后端的代理地址
+    const apiBase = `/api/extensions/${extId}/node/api`;
+
+    // ===== 核心魔法：自动获取主程序的真实 URL =====
+    // window.location.origin 会返回类似 http://127.0.0.1:3456 的准确地址
+    const hostUrl = window.location.origin;
+
+    const statusBadge = document.getElementById('cliStatus');
+    const urlInput = document.getElementById('backendUrl');
+    const toggleBtn = document.getElementById('toggleBtn');
+    const toggleText = document.getElementById('toggleText');
+    const toggleDesc = document.getElementById('toggleDesc');
+    const saveUrlBtn = document.getElementById('saveUrlBtn');
+
+    let isEnabled = false;
+
+    // 获取当前状态
+    async function fetchStatus() {
+        try {
+            const res = await fetch(`${apiBase}/status`);
+            const data = await res.json();
+            
+            // 如果后端存的 URL 包含默认的 8000/3456，或者干脆没有，我们就帮用户自动替换为主程序的真实地址
+            if (!data.backendUrl || data.backendUrl.includes('8000') || data.backendUrl === 'http://127.0.0.1:3456') {
+                urlInput.value = hostUrl; 
+            } else {
+                urlInput.value = data.backendUrl;
+            }
+            
+            isEnabled = data.cliEnabled;
+            updateUI();
+        } catch (e) {
+            console.error(e);
+            statusBadge.className = 'badge offline';
+            statusBadge.innerHTML = `<div class="dot" style="background:var(--danger)"></div><span style="color:var(--danger)">后端未启动</span>`;
+            toggleBtn.disabled = true;
+        }
+    }
+
+    // 更新 UI 状态
+    function updateUI() {
+        if (isEnabled) {
+            statusBadge.className = 'badge online';
+            statusBadge.innerHTML = `<div class="dot"></div><span>已挂载 (可全局使用)</span>`;
+            
+            toggleBtn.className = 'btn btn-danger';
+            toggleBtn.innerHTML = `<i class="fa-solid fa-trash-can"></i> <span id="toggleText">卸载 CLI</span>`;
+            toggleDesc.innerText = 'CLI 正在运行中，终端输入 sap 即可使用。';
+        } else {
+            statusBadge.className = 'badge offline';
+            statusBadge.innerHTML = `<div class="dot"></div><span>未挂载</span>`;
+            
+            toggleBtn.className = 'btn btn-primary';
+            toggleBtn.innerHTML = `<i class="fa-solid fa-bolt"></i> <span id="toggleText">挂载 CLI</span>`;
+            toggleDesc.innerText = '将命令注册到系统环境，可能需要管理员权限。';
+        }
+    }
+
+    // 保存 URL
+    saveUrlBtn.onclick = async () => {
+        saveUrlBtn.disabled = true;
+        saveUrlBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> 保存中`;
+        try {
+            const res = await fetch(`${apiBase}/settings`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ backendUrl: urlInput.value })
+            });
+            if (res.ok) {
+                setTimeout(() => {
+                    saveUrlBtn.innerHTML = `<i class="fa-solid fa-check"></i> 已保存`;
+                    setTimeout(() => {
+                        saveUrlBtn.innerHTML = `<i class="fa-solid fa-save"></i> 更新地址`;
+                        saveUrlBtn.disabled = false;
+                    }, 2000);
+                }, 500);
+            }
+        } catch(e) {
+            alert('保存失败');
+            saveUrlBtn.disabled = false;
+        }
+    };
+
+    // 切换 CLI 启停
+    toggleBtn.onclick = async () => {
+        toggleBtn.disabled = true;
+        toggleBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> 处理中...`;
+        
+        try {
+            // 如果点启用的瞬间，发现当前的 URL 和保存的可能不一致，顺手静默保存一下
+            if (!isEnabled && urlInput.value) {
+                await fetch(`${apiBase}/settings`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ backendUrl: urlInput.value })
+                });
+            }
+
+            const res = await fetch(`${apiBase}/toggle-cli`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enable: !isEnabled })
+            });
+            const data = await res.json();
+            
+            if (data.success) {
+                isEnabled = data.enabled;
+            } else {
+                alert('挂载失败:\n' + data.message + '\n\n【提示】Windows如果报 EPERM 错误，请右键"以管理员身份运行"本软件。');
+            }
+        } catch (e) {
+            alert('网络请求失败');
+        } finally {
+            toggleBtn.disabled = false;
+            updateUI();
+        }
+    };
+
+    // 启动时初始化
+    fetchStatus();
+</script>
+
+</body>
+</html>
