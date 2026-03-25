@@ -1,4 +1,5 @@
 {
   "backendUrl": "http://127.0.0.1:3456",
-  "cliEnabled": true
+  "cliEnabled": true,
+  "lang": "zh"
 }

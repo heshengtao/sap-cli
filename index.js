@@ -8,7 +8,11 @@ const configPath = path.join(EXT_DIR, 'config.json');
 
 // 初始化配置
 if (!fs.existsSync(configPath)) {
-    fs.writeFileSync(configPath, JSON.stringify({ backendUrl: 'http://127.0.0.1:3456', cliEnabled: false }));
+    fs.writeFileSync(configPath, JSON.stringify({ 
+        backendUrl: 'http://127.0.0.1:3456', 
+        cliEnabled: false,
+        lang: 'zh' 
+    }));
 }
 
 // 辅助函数：执行 Shell 命令
@@ -38,9 +42,10 @@ if (process.argv[2]) {
     });
 
     app.post('/api/settings', (req, res) => {
-        const { backendUrl } = req.body;
+        const { backendUrl, lang } = req.body;
         const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-        config.backendUrl = backendUrl;
+        if (backendUrl) config.backendUrl = backendUrl;
+        if (lang) config.lang = lang;
         fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
         res.json({ success: true, config });
     });
