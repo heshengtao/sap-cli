@@ -10,6 +10,7 @@ const path = require('path');
 // ==========================================
 const configPath = path.join(__dirname, 'config.json');
 let config = { backendUrl: 'http://127.0.0.1:3456', lang: 'zh' };
+// 动态读取最新配置
 if (fs.existsSync(configPath)) {
     try { config = JSON.parse(fs.readFileSync(configPath, 'utf8')); } catch (e) {}
 }
@@ -28,7 +29,12 @@ const i18n = {
             { p: "-m <name>", d: "指定模型/Agent (默认: super-model)" },
             { p: "-t", d: "开启深度思考 (Thinking Mode)" },
             { p: "-w", d: "开启联网搜索 (Web Search)" }
-        ]
+        ],
+        // 【新增】：微信 ACP 模式下的双语默认提示词与清洗占位符
+        noContent: "AI 没有返回内容",
+        analyzeImage: "请分析这张图片的内容。",
+        imageWithText: "[用户发了一张图片配文]: ",
+        justImage: "[用户发送了一张图片]"
     },
     en: { 
         welcome: "🚀 SAP CLI Console", info: "Type /help for commands", you: "You: ", ai: "SAP: ", bye: "Bye! 👋", 
@@ -41,9 +47,15 @@ const i18n = {
             { p: "-m <name>", d: "Specify Model/Agent (Default: super-model)" },
             { p: "-t", d: "Enable Thinking Mode" },
             { p: "-w", d: "Enable Web Search" }
-        ]
+        ],
+        // 【新增】：微信 ACP 模式下的双语默认提示词与清洗占位符
+        noContent: "AI returned no content",
+        analyzeImage: "Please analyze the content of this image.",
+        imageWithText: "[User sent an image with text]: ",
+        justImage: "[User sent an image]"
     }
 };
+// 根据 config.json 里的 lang 字段决定使用哪种语言
 const T = i18n[config.lang] || i18n.en;
 
 program
@@ -62,7 +74,25 @@ if (!isInteractive) {
     logDebug("\n=== SAP Agent 启动 (后台接管模式) ===");
 
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: false });
-    
+
+    // 全局存储微信的会话上下文
+    const acpSessions = {};
+
+    // 辅助函数：向微信发送异步文本消息
+    async function sendNotifyToWechat(sessionId, textContent) {
+        const notifyParams = {
+            sessionId: sessionId,
+            update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: textContent } }
+        };
+        const methodsToTry = ["notifications/session/update", "notifications/sessionUpdate", "session/update"];
+        for (const method of methodsToTry) {
+            const notifyJson = JSON.stringify({ jsonrpc: "2.0", method: method, params: notifyParams });
+            logDebug(`SEND-NOTIFY: ${notifyJson}`);
+            process.stdout.write(notifyJson + '\n');
+        }
+        await new Promise(r => setTimeout(r, 100)); // 微延迟防乱序
+    }
+
     rl.on('line', async (line) => {
         logDebug(`RECV: ${line}`);
         try {
@@ -72,47 +102,99 @@ if (!isInteractive) {
             const m = req.method;
             const p = req.params || {};
 
-            // 1. 初始化握手
             if (m === 'initialize') {
                 sendResp(req.id, { protocolVersion: "1.0", capabilities: {}, serverInfo: { name: "sap-cli", version: "1.0.0" } });
             } 
-            // 2. 创建会话
             else if (m === 'session/new') {
-                sendResp(req.id, { sessionId: "sap-session-001" });
+                const sessionId = p.sessionId || `sap-session-${Date.now()}`;
+                if (!acpSessions[sessionId]) acpSessions[sessionId] = [];
+                sendResp(req.id, { sessionId: sessionId });
             } 
-            // 3. 处理核心聊天请求
             else if (m === 'session/prompt') {
-                const sessionId = p.sessionId || "sap-session-001";
-                let userText = Array.isArray(p.prompt) ? p.prompt.map(item => item.text || '').join('\n') : (p.prompt || "你好");
+                const sessionId = p.sessionId || "sap-session-default";
+                if (!acpSessions[sessionId]) acpSessions[sessionId] = [];
 
-                logDebug(`💬 收到微信输入: ${userText}`);
-                
-                // 请求后端AI
-                const replyText = await fetchBackend([{ role: 'user', content: userText }], false);
-                
-                logDebug(`🤖 AI 生成完毕: ${replyText.substring(0, 20)}...`);
+                let userText = "";       
+                let openAiContent = [];  
+                let hasImage = false;    
 
-                // 【致胜绝招：发送异步事件通知将文本塞进微信插件的 Buffer 里】
-                const notifyParams = {
-                    sessionId: sessionId,
-                    update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: replyText } }
-                };
-
-                // 同时尝试三种最可能的协议通知方法，以防 SDK 演进
-                const methodsToTry = ["notifications/session/update", "notifications/sessionUpdate", "session/update"];
-                for (const method of methodsToTry) {
-                    const notifyJson = JSON.stringify({ jsonrpc: "2.0", method: method, params: notifyParams });
-                    logDebug(`SEND-NOTIFY: ${notifyJson}`);
-                    process.stdout.write(notifyJson + '\n');
+                if (Array.isArray(p.prompt)) {
+                    for (const item of p.prompt) {
+                        if (item.type === 'text' && item.text) {
+                            userText += item.text;
+                            openAiContent.push({ type: "text", text: item.text });
+                        } else if (item.type === 'image') {
+                            const base64Data = item.image_data || item.data || "";
+                            if (base64Data) {
+                                hasImage = true;
+                                openAiContent.push({ 
+                                    type: "image_url", 
+                                    image_url: { url: `data:image/jpeg;base64,${base64Data}` } 
+                                });
+                            }
+                        }
+                    }
+                } else {
+                    userText = p.prompt || "";
+                    openAiContent = userText; 
                 }
 
-                // 微延迟确保通知包先被微信插件处理
-                await new Promise(r => setTimeout(r, 100));
+                // 【多语言支持】：自动补全纯图片提示词
+                if (hasImage && !userText.trim()) {
+                    openAiContent.push({ type: "text", text: T.analyzeImage });
+                }
 
-                // 告诉微信插件这一轮回答结束
+                logDebug(`💬 收到微信输入 (提取文本): ${userText || '[Image]'}`);
+                const lowerCmd = userText.trim().toLowerCase();
+
+                if (lowerCmd === '/clear') {
+                    acpSessions[sessionId] = [];
+                    await sendNotifyToWechat(sessionId, T.reset);
+                    return sendResp(req.id, { stopReason: "completed" });
+                }
+                if (lowerCmd === '/help') {
+                    const helpText = `${T.helpTitle}:\n` + T.cmds.map(c => `${c.c}  -  ${c.d}`).join('\n');
+                    await sendNotifyToWechat(sessionId, helpText);
+                    return sendResp(req.id, { stopReason: "completed" });
+                }
+                if (lowerCmd === '/status') {
+                    const rounds = Math.floor(acpSessions[sessionId].length / 2);
+                    const statusText = `${T.statusTitle}:\nAPI: ${config.backendUrl}\nModel: ${options.model}\nContext: ${rounds} rounds`;
+                    await sendNotifyToWechat(sessionId, statusText);
+                    return sendResp(req.id, { stopReason: "completed" });
+                }
+
+                if (!userText && openAiContent.length === 0) {
+                    return sendResp(req.id, { stopReason: "completed" });
+                }
+
+                acpSessions[sessionId].push({ role: 'user', content: openAiContent });
+
+                if (acpSessions[sessionId].length > 20) {
+                    acpSessions[sessionId] = acpSessions[sessionId].slice(-20);
+                }
+
+                const replyText = await fetchBackend(acpSessions[sessionId], false);
+                logDebug(`🤖 AI 生成完毕: ${replyText.substring(0, 20)}...`);
+
+                // 【多语言支持】：卸磨杀驴式的上下文图片清洗，换成指定语言的文本
+                if (hasImage) {
+                    const lastUserMsg = acpSessions[sessionId][acpSessions[sessionId].length - 1];
+                    if (lastUserMsg && lastUserMsg.role === 'user') {
+                        lastUserMsg.content = userText.trim() ? `${T.imageWithText}${userText}` : T.justImage;
+                    }
+                }
+
+                // 【多语言支持】：防污染，检测多语言下的无内容错误
+                if (replyText.includes(T.noContent) || replyText.includes("[Error]")) {
+                    acpSessions[sessionId].pop(); 
+                } else {
+                    acpSessions[sessionId].push({ role: 'assistant', content: replyText });
+                }
+
+                await sendNotifyToWechat(sessionId, replyText);
                 sendResp(req.id, { stopReason: "completed" });
-            } 
-            // 4. 未知指令兜底放行
+            }
             else {
                 if (req.id !== undefined) sendResp(req.id, {});
             }
@@ -128,7 +210,7 @@ if (!isInteractive) {
             process.stdout.write(msgStr + '\n');
         }
     }
-} 
+}
 
 // ==========================================
 // 模式 B：交互式终端模式 (人类直接打开终端使用)
@@ -155,7 +237,8 @@ async function fetchBackend(msgs, isStream) {
 
         if (!isStream) {
             const data = await response.json();
-            return data.choices?.[0]?.message?.content || "AI 没有返回内容";
+            // 【多语言支持】：在此处使用动态提取的语言占位符
+            return data.choices?.[0]?.message?.content || T.noContent; 
         }
 
         const reader = response.body.getReader();
@@ -189,7 +272,6 @@ function runInteractiveMode() {
     let messages = [];
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 
-    // 帮助菜单打印
     const printHelp = () => {
         console.log(chalk.yellow(`\n${T.helpTitle}:`));
         T.cmds.forEach(item => console.log(`  ${chalk.cyan(item.c.padEnd(10))} ${chalk.gray(item.d)}`));
@@ -198,33 +280,29 @@ function runInteractiveMode() {
         console.log();
     };
 
-    // 状态看板打印
     const printStatus = () => {
         console.log(chalk.blue(`\n${T.statusTitle}:`));
         console.log(`  ${chalk.gray("URL:")}   ${config.backendUrl}`);
         console.log(`  ${chalk.gray("Model:")} ${options.model}`);
-        console.log(`  ${chalk.gray("Flags:")} ${options.think ? '🧠 深度思考 ' : ''}${options.web ? '🌐 联网搜索 ' : ''}${!options.think && !options.web ? '默认普通' : ''}`);
-        console.log(`  ${chalk.gray("Context:")} 当前已记忆 ${messages.length / 2} 轮对话\n`);
+        console.log(`  ${chalk.gray("Flags:")} ${options.think ? '🧠 Thinking ' : ''}${options.web ? '🌐 WebSearch ' : ''}${!options.think && !options.web ? 'Default' : ''}`);
+        console.log(`  ${chalk.gray("Context:")} ${messages.length / 2} rounds\n`);
     };
 
-    // 启动欢迎屏幕
     console.clear();
     console.log(chalk.bold.cyan(`\n${T.welcome}`));
     console.log(chalk.dim(`──────────────────────────────────────────`));
     console.log(`${chalk.gray("Backend:")} ${chalk.white(config.backendUrl)}`);
     console.log(`${chalk.gray("Model:")}   ${chalk.green(options.model)}`);
-    if(options.think) console.log(chalk.magenta("✨ 深度思考 (Thinking Mode) 已开启"));
-    if(options.web)   console.log(chalk.blue("🌐 联网搜索 (Web Search) 已开启"));
+    if(options.think) console.log(chalk.magenta("✨ Thinking Mode Enabled"));
+    if(options.web)   console.log(chalk.blue("🌐 Web Search Enabled"));
     console.log(chalk.dim(`──────────────────────────────────────────`));
     console.log(chalk.italic.yellow(T.info + "\n"));
 
-    // 核心对话循环
     const ask = () => {
         rl.question(chalk.green.bold(T.you), async (input) => {
             const text = input.trim();
             const lowerText = text.toLowerCase();
             
-            // --- 路由：处理内部指令 ---
             if (lowerText === 'exit' || lowerText === '/exit') {
                 console.log(chalk.yellow(T.bye));
                 process.exit();
@@ -238,26 +316,22 @@ function runInteractiveMode() {
             }
             if (!text) return ask();
 
-            // --- 路由：处理正常对话 ---
             messages.push({ role: 'user', content: text });
             
             try {
                 process.stdout.write(chalk.blue.bold(T.ai));
-                // 开启终端特供的“流式打字机”输出
                 const reply = await fetchBackend(messages, true);
                 
-                // 将 AI 的回复存入数组，形成长上下文记忆
                 messages.push({ role: 'assistant', content: reply });
                 console.log("\n");
             } catch (err) {
                 console.log(chalk.red(err));
-                messages.pop(); // 失败时弹出用户刚才输入的话，防污染
+                messages.pop(); 
             }
             
             ask();
         });
     };
     
-    // 开始运行
     ask();
 }
