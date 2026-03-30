@@ -82,15 +82,24 @@ if (!isInteractive) {
     async function sendNotifyToWechat(sessionId, textContent) {
         const notifyParams = {
             sessionId: sessionId,
-            update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: textContent } }
+            update: { 
+                sessionUpdate: "agent_message_chunk", 
+                content: { type: "text", text: textContent } 
+            }
         };
-        const methodsToTry = ["notifications/session/update", "notifications/sessionUpdate", "session/update"];
-        for (const method of methodsToTry) {
-            const notifyJson = JSON.stringify({ jsonrpc: "2.0", method: method, params: notifyParams });
-            logDebug(`SEND-NOTIFY: ${notifyJson}`);
-            process.stdout.write(notifyJson + '\n');
-        }
-        await new Promise(r => setTimeout(r, 100)); // 微延迟防乱序
+        
+        // 根据你的日志反馈，wechat-acp 可能只支持 session/update
+        const method = "session/update"; 
+        
+        const notifyJson = JSON.stringify({ 
+            jsonrpc: "2.0", 
+            method: method, 
+            params: notifyParams 
+            // 注意：Notification 不带 id
+        });
+        
+        logDebug(`SEND-NOTIFY: ${notifyJson}`);
+        process.stdout.write(notifyJson + '\n');
     }
 
     rl.on('line', async (line) => {
