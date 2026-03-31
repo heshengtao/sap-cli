@@ -112,8 +112,15 @@ if (!isInteractive) {
             const p = req.params || {};
 
             if (m === 'initialize') {
-                sendResp(req.id, { protocolVersion: "1.0", capabilities: {}, serverInfo: { name: "sap-cli", version: "1.0.0" } });
-            } 
+                sendResp(req.id, { 
+                    protocolVersion: 1,  // 注意：必须是数字 1，不能是字符串
+                    agentCapabilities: {}, // 键名必须是 agentCapabilities
+                    agentInfo: {           // 键名必须是 agentInfo
+                        name: "sap-cli", 
+                        version: "1.0.0" 
+                    } 
+                });
+            }
             else if (m === 'session/new') {
                 const sessionId = p.sessionId || `sap-session-${Date.now()}`;
                 if (!acpSessions[sessionId]) acpSessions[sessionId] = [];
@@ -159,22 +166,22 @@ if (!isInteractive) {
                 if (lowerCmd === '/clear') {
                     acpSessions[sessionId] = [];
                     await sendNotifyToWechat(sessionId, T.reset);
-                    return sendResp(req.id, { stopReason: "completed" });
+                    return sendResp(req.id, { stopReason: "end_turn" });
                 }
                 if (lowerCmd === '/help') {
                     const helpText = `${T.helpTitle}:\n` + T.cmds.map(c => `${c.c}  -  ${c.d}`).join('\n');
                     await sendNotifyToWechat(sessionId, helpText);
-                    return sendResp(req.id, { stopReason: "completed" });
+                    return sendResp(req.id, { stopReason: "end_turn" });
                 }
                 if (lowerCmd === '/status') {
                     const rounds = Math.floor(acpSessions[sessionId].length / 2);
                     const statusText = `${T.statusTitle}:\nAPI: ${config.backendUrl}\nModel: ${options.model}\nContext: ${rounds} rounds`;
                     await sendNotifyToWechat(sessionId, statusText);
-                    return sendResp(req.id, { stopReason: "completed" });
+                    return sendResp(req.id, { stopReason: "end_turn" });
                 }
 
                 if (!userText && openAiContent.length === 0) {
-                    return sendResp(req.id, { stopReason: "completed" });
+                    return sendResp(req.id, { stopReason: "end_turn" });
                 }
 
                 acpSessions[sessionId].push({ role: 'user', content: openAiContent });
@@ -202,7 +209,7 @@ if (!isInteractive) {
                 }
 
                 await sendNotifyToWechat(sessionId, replyText);
-                sendResp(req.id, { stopReason: "completed" });
+                sendResp(req.id, { stopReason: "end_turn" });
             }
             else {
                 if (req.id !== undefined) sendResp(req.id, {});
