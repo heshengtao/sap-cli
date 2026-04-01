@@ -128,10 +128,10 @@ if (!isInteractive) {
             } 
             else if (m === 'session/prompt') {
                 const sessionId = p.sessionId || "sap-session-default";
-                if (!acpSessions[sessionId]) acpSessions[sessionId] = [];
+                if (!acpSessions[sessionId]) acpSessions[sessionId] =[];
 
                 let userText = "";       
-                let openAiContent = [];  
+                let openAiContent =[];  
                 let hasImage = false;    
 
                 if (Array.isArray(p.prompt)) {
@@ -160,11 +160,12 @@ if (!isInteractive) {
                     openAiContent.push({ type: "text", text: T.analyzeImage });
                 }
 
-                logDebug(`💬 收到微信输入 (提取文本): ${userText || '[Image]'}`);
+                logDebug(`💬 收到微信/Zed输入: ${userText || '[Image]'}`);
                 const lowerCmd = userText.trim().toLowerCase();
 
+                // 处理内置指令 (注意这里全都改成了 end_turn)
                 if (lowerCmd === '/clear') {
-                    acpSessions[sessionId] = [];
+                    acpSessions[sessionId] =[];
                     await sendNotifyToWechat(sessionId, T.reset);
                     return sendResp(req.id, { stopReason: "end_turn" });
                 }
@@ -184,16 +185,54 @@ if (!isInteractive) {
                     return sendResp(req.id, { stopReason: "end_turn" });
                 }
 
+                // 将用户输入加入上下文
                 acpSessions[sessionId].push({ role: 'user', content: openAiContent });
 
+                // 限制上下文最大轮数
                 if (acpSessions[sessionId].length > 20) {
                     acpSessions[sessionId] = acpSessions[sessionId].slice(-20);
                 }
 
-                const replyText = await fetchBackend(acpSessions[sessionId], false);
+                logDebug(`🤖 开始请求 AI，准备流式返回...`);
+
+                // ==========================================
+                // 流式返回与换行截断逻辑 (Buffer)
+                // ==========================================
+                let streamBuffer = "";
+
+                const handleStreamChunk = async (content) => {
+                    streamBuffer += content;
+                    
+                    // 只要缓冲区里有回车符 \n，就截断发送
+                    // (提示: 如果觉得按行发送太频繁，可以把这里的 '\n' 改成 '\n\n' 按段落发送)
+                    if (streamBuffer.includes('\n')) {
+                        const lastNewlineIndex = streamBuffer.lastIndexOf('\n');
+                        // 截取到最后一个回车符（包含回车符）
+                        const chunkToSend = streamBuffer.substring(0, lastNewlineIndex + 1);
+                        // 剩下的无回车文本留到下一次
+                        streamBuffer = streamBuffer.substring(lastNewlineIndex + 1);
+                        
+                        // 防止发送空气泡
+                        if (chunkToSend.trim()) {
+                            await sendNotifyToWechat(sessionId, chunkToSend);
+                        }
+                    }
+                };
+
+                // 调用 fetchBackend，开启流式 (true)，并传入我们刚写好的回调函数
+                const replyText = await fetchBackend(acpSessions[sessionId], true, handleStreamChunk);
+
+                // AI 生成结束后，把 buffer 里最后没有回车符的剩余文本发出去
+                if (streamBuffer.trim().length > 0) {
+                    await sendNotifyToWechat(sessionId, streamBuffer);
+                }
+
                 logDebug(`🤖 AI 生成完毕: ${replyText.substring(0, 20)}...`);
 
-                // 【多语言支持】：卸磨杀驴式的上下文图片清洗，换成指定语言的文本
+                // ==========================================
+                // 上下文清理与历史记录保存
+                // ==========================================
+                // 卸磨杀驴式的上下文图片清洗，换成指定语言的文本
                 if (hasImage) {
                     const lastUserMsg = acpSessions[sessionId][acpSessions[sessionId].length - 1];
                     if (lastUserMsg && lastUserMsg.role === 'user') {
@@ -201,14 +240,14 @@ if (!isInteractive) {
                     }
                 }
 
-                // 【多语言支持】：防污染，检测多语言下的无内容错误
+                // 防污染，检测多语言下的无内容错误
                 if (replyText.includes(T.noContent) || replyText.includes("[Error]")) {
                     acpSessions[sessionId].pop(); 
                 } else {
                     acpSessions[sessionId].push({ role: 'assistant', content: replyText });
                 }
 
-                await sendNotifyToWechat(sessionId, replyText);
+                // 最终必须返回 end_turn，宣告这个对话轮次正式结束，这样 Zed 就不会报错了
                 sendResp(req.id, { stopReason: "end_turn" });
             }
             else {
@@ -238,7 +277,7 @@ else {
 /**
  * 通用请求后端函数 (支持流式和非流式)
  */
-async function fetchBackend(msgs, isStream) {
+async function fetchBackend(msgs, isStream, onChunk = null) {
     try {
         const response = await fetch(`${config.backendUrl}/v1/chat/completions`, {
             method: 'POST',
@@ -253,25 +292,50 @@ async function fetchBackend(msgs, isStream) {
 
         if (!isStream) {
             const data = await response.json();
-            // 【多语言支持】：在此处使用动态提取的语言占位符
             return data.choices?.[0]?.message?.content || T.noContent; 
         }
 
         const reader = response.body.getReader();
-        const decoder = new TextDecoder();
+        const decoder = new TextDecoder("utf-8");
         let fullText = "";
         
+        // ==========================================
+        // 【修复】：引入数据拼接缓冲区，解决长文本断包问题
+        // ==========================================
+        let sseBuffer = ""; 
+
         while (true) {
             const { done, value } = await reader.read();
             if (done) break;
-            const chunks = decoder.decode(value).split('\n');
-            for (const chunk of chunks) {
-                if (chunk.startsWith('data: ') && !chunk.includes('[DONE]')) {
+            
+            // stream: true 保证多字节字符（如中文 emoji）在分包时不会乱码
+            sseBuffer += decoder.decode(value, { stream: true });
+            
+            // 按照换行符拆分
+            const lines = sseBuffer.split('\n');
+            
+            // 【关键逻辑】：最后一行可能是不完整的半截 JSON，把它弹出来留到下一次循环拼接！
+            sseBuffer = lines.pop(); 
+
+            for (const line of lines) {
+                const trimmedLine = line.trim();
+                // 忽略空行和结尾标识
+                if (trimmedLine.startsWith('data: ') && !trimmedLine.includes('[DONE]')) {
                     try {
-                        const content = JSON.parse(chunk.slice(6)).choices[0]?.delta?.content || "";
-                        process.stdout.write(content);
-                        fullText += content;
-                    } catch (e) {}
+                        const dataObj = JSON.parse(trimmedLine.slice(6));
+                        const content = dataObj.choices?.[0]?.delta?.content || "";
+                        if (content) {
+                            if (onChunk) {
+                                await onChunk(content);
+                            } else {
+                                process.stdout.write(content);
+                            }
+                            fullText += content;
+                        }
+                    } catch (e) {
+                        // 此处就算报错，也只会丢弃真正损坏的一行，不再会导致后续全部断流
+                        // console.error("JSON parse error on line:", trimmedLine);
+                    }
                 }
             }
         }
