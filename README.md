@@ -10,9 +10,26 @@ super agent party的CLI插件！
 
 进阶用法：
 
+1. 连接微信
+
 `npx wechat-acp --agent sap`
 
 用微信扫描二维码后，即可在微信中使用SAP
+
+2. 在zed等支持ACP的编辑器中使用sap
+
+在编辑器的settings.json中添加以下字段：
+
+```json
+{
+  "agent_servers": {
+    "your_agent": {
+      "type": "custom",
+      "command": "sap",
+    },
+  }
+}
+```
 
 ---
 
@@ -22,6 +39,23 @@ Mount the `sap` command in the extension. Then, in the terminal, use the `sap` c
 
 Advanced Usage:
 
+1. Connect to WeChat
+
 `npx wechat-acp --agent sap`
 
 After scanning the QR code with WeChat, you can use SAP within WeChat.
+
+2. Use sap in zed or other ACP-enabled editors
+
+Add the following field to the settings.json of the editor:
+
+```json
+{
+  "agent_servers": {
+    "your_agent": {
+      "type": "custom",
+      "command": "sap",
+    },
+  }
+}
+```
