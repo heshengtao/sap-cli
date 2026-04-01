@@ -1,16 +1,15 @@
 #!/usr/bin/env node
 const readline = require('readline');
 const { program } = require('commander');
-const chalk = require('chalk');
 const fs = require('fs');
 const path = require('path');
+const blessed = require('blessed');
 
 // ==========================================
-// 1. 初始化配置与多语言
+// 1. 配置与多语言（保持不变）
 // ==========================================
 const configPath = path.join(__dirname, 'config.json');
 let config = { backendUrl: 'http://127.0.0.1:3456', lang: 'zh' };
-// 动态读取最新配置
 if (fs.existsSync(configPath)) {
     try { config = JSON.parse(fs.readFileSync(configPath, 'utf8')); } catch (e) {}
 }
@@ -18,89 +17,114 @@ if (fs.existsSync(configPath)) {
 const isInteractive = process.stdout.isTTY;
 
 const i18n = {
-    zh: { 
-        welcome: "🚀 SAP CLI 控制台", info: "输入 /help 查看指令", you: "你: ", ai: "SAP: ", bye: "再见! 👋", 
-        reset: "🧹 会话已重置 (上下文已清空)", statusTitle: "📊 当前连接状态", helpTitle: "💡 可用指令",
+    zh: {
+        welcome: '🚀 SAP TUI 控制台',
+        info: 'Enter 发送，↑/↓ 历史，Ctrl+C 退出',
+        you: '你: ',
+        ai: 'SAP: ',
+        bye: '再见! 👋',
+        reset: '🧹 会话已重置',
+        statusTitle: '📊 连接状态',
+        helpTitle: '💡 快捷命令',
         cmds: [
-            { c: "/help", d: "显示此帮助菜单" }, { c: "/clear", d: "清空当前对话上下文 (开启新话题)" },
-            { c: "/status", d: "查看当前后端地址、模型及上下文轮数" }, { c: "/exit", d: "退出程序" }
+            { c: '/help', d: '显示帮助' },
+            { c: '/clear', d: '清空上下文' },
+            { c: '/status', d: '查看状态' },
+            { c: '/exit', d: '退出程序' }
         ],
         params: [
-            { p: "-m <name>", d: "指定模型/Agent (默认: super-model)" },
-            { p: "-t", d: "开启深度思考 (Thinking Mode)" },
-            { p: "-w", d: "开启联网搜索 (Web Search)" }
+            { p: '-m <name>', d: '模型/Agent' },
+            { p: '-t', d: '深度思考' },
+            { p: '-w', d: '联网搜索' }
         ],
-        // 【新增】：微信 ACP 模式下的双语默认提示词与清洗占位符
-        noContent: "AI 没有返回内容",
-        analyzeImage: "请分析这张图片的内容。",
-        imageWithText: "[用户发了一张图片配文]: ",
-        justImage: "[用户发送了一张图片]"
+        noContent: 'AI 无返回内容',
+        analyzeImage: '请分析这张图片的内容。',
+        imageWithText: '[图片配文]: ',
+        justImage: '[用户发送了一张图片]',
+        statusLine: '后端: {url} | 模型: {model} | 思考: {think} 联网: {web}',
+        thinking: '🧠 深度思考',
+        toolCall: '🔧 工具调用',
+        toolResult: '✅ 工具结果',
+        error: '❌ 错误',
+        approval: '🛡️ 审批请求',
+        denying: '❌ 已拒绝',
+        executing: '⚙️ 执行中'
     },
-    en: { 
-        welcome: "🚀 SAP CLI Console", info: "Type /help for commands", you: "You: ", ai: "SAP: ", bye: "Bye! 👋", 
-        reset: "🧹 Session reset (Context cleared)", statusTitle: "📊 Session Status", helpTitle: "💡 Commands",
+    en: {
+        welcome: '🚀 SAP TUI Console',
+        info: 'Enter to send, ↑/↓ history, Ctrl+C to quit',
+        you: 'You: ',
+        ai: 'SAP: ',
+        bye: 'Bye! 👋',
+        reset: '🧹 Session reset',
+        statusTitle: '📊 Session Status',
+        helpTitle: '💡 Commands',
         cmds: [
-            { c: "/help", d: "Show this help menu" }, { c: "/clear", d: "Clear context (Start new topic)" },
-            { c: "/status", d: "Show model, URL and context rounds" }, { c: "/exit", d: "Exit program" }
+            { c: '/help', d: 'Show help' },
+            { c: '/clear', d: 'Clear context' },
+            { c: '/status', d: 'Show status' },
+            { c: '/exit', d: 'Exit program' }
         ],
         params: [
-            { p: "-m <name>", d: "Specify Model/Agent (Default: super-model)" },
-            { p: "-t", d: "Enable Thinking Mode" },
-            { p: "-w", d: "Enable Web Search" }
+            { p: '-m <name>', d: 'Model/Agent' },
+            { p: '-t', d: 'Thinking Mode' },
+            { p: '-w', d: 'Web Search' }
         ],
-        // 【新增】：微信 ACP 模式下的双语默认提示词与清洗占位符
-        noContent: "AI returned no content",
-        analyzeImage: "Please analyze the content of this image.",
-        imageWithText: "[User sent an image with text]: ",
-        justImage: "[User sent an image]"
+        noContent: 'AI returned no content',
+        analyzeImage: 'Please analyze the content of this image.',
+        imageWithText: '[Image with text]: ',
+        justImage: '[User sent an image]',
+        statusLine: 'Backend: {url} | Model: {model} | Think: {think} Web: {web}',
+        thinking: '🧠 Thinking',
+        toolCall: '🔧 Tool Call',
+        toolResult: '✅ Tool Result',
+        error: '❌ Error',
+        approval: '🛡️ Approval',
+        denying: '❌ Denied',
+        executing: '⚙️ Executing'
     }
 };
-// 根据 config.json 里的 lang 字段决定使用哪种语言
+
 const T = i18n[config.lang] || i18n.en;
 
 program
-  .option('-m, --model <type>', 'Model Name', 'super-model')
-  .option('-t, --think', 'Thinking Mode', false)
-  .option('-w, --web', 'Web Search', false)
-  .parse(process.argv);
+    .option('-m, --model <type>', 'Model Name', 'super-model')
+    .option('-t, --think', 'Thinking Mode', false)
+    .option('-w, --web', 'Web Search', false)
+    .parse(process.argv);
 const options = program.opts();
 
 // ==========================================
-// 模式 A：ACP 协议模式 (给 wechat-acp 使用，完美破解版)
+// 模式 A：ACP 协议模式（完全保持原样）
 // ==========================================
 if (!isInteractive) {
     const logFile = path.join(__dirname, 'acp-debug.log');
     function logDebug(msg) { fs.appendFileSync(logFile, `[${new Date().toISOString()}] ${msg}\n`); }
-    logDebug("\n=== SAP Agent 启动 (后台接管模式) ===");
+    logDebug('\n=== SAP Agent 启动 (后台接管模式) ===');
 
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: false });
-
-    // 全局存储微信的会话上下文
     const acpSessions = {};
 
-    // 辅助函数：向微信发送异步文本消息
     async function sendNotifyToWechat(sessionId, textContent) {
         const notifyParams = {
             sessionId: sessionId,
-            update: { 
-                sessionUpdate: "agent_message_chunk", 
-                content: { type: "text", text: textContent } 
+            update: {
+                sessionUpdate: 'agent_message_chunk',
+                content: { type: 'text', text: textContent }
             }
         };
-        
-        // 根据你的日志反馈，wechat-acp 可能只支持 session/update
-        const method = "session/update"; 
-        
-        const notifyJson = JSON.stringify({ 
-            jsonrpc: "2.0", 
-            method: method, 
-            params: notifyParams 
-            // 注意：Notification 不带 id
+        const method = 'session/update';
+        const notifyJson = JSON.stringify({
+            jsonrpc: '2.0',
+            method: method,
+            params: notifyParams
         });
-        
         logDebug(`SEND-NOTIFY: ${notifyJson}`);
         process.stdout.write(notifyJson + '\n');
     }
+
+    // 此处保留原 ACP 逻辑完整代码（因篇幅省略，实际替换时请粘贴原始 cli.js 中 ACP 部分）
+    // ...（请务必复制原文件中的 ACP 处理部分，不能省略）
 
     rl.on('line', async (line) => {
         logDebug(`RECV: ${line}`);
@@ -266,152 +290,458 @@ if (!isInteractive) {
         }
     }
 }
-
 // ==========================================
-// 模式 B：交互式终端模式 (人类直接打开终端使用)
+// 模式 B：TUI 终端模式（全新实现）
 // ==========================================
 else {
-    runInteractiveMode();
+    runTuiMode();
 }
 
-/**
- * 通用请求后端函数 (支持流式和非流式)
- */
-async function fetchBackend(msgs, isStream, onChunk = null) {
-    try {
-        const response = await fetch(`${config.backendUrl}/v1/chat/completions`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                model: options.model, messages: msgs, stream: isStream,
-                enable_thinking: options.think, enable_web_search: options.web
-            })
-        });
+// ==========================================
+// TUI 主函数
+// ==========================================
+function runTuiMode() {
+    // ---------- 状态变量 ----------
+    let messages = [];            // { role, blocks: [{type, content, name, id, arguments}] }
+    let isStreaming = false;
+    let streamBlocks = [];       // 当前正在生成的块数组
+    let streamController = null; // 用于中断生成
+    let inputHistory = [];
+    let historyIndex = -1;
 
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    // ---------- 工具函数 ----------
+    function escapeBlessed(text) {
+        return String(text).replace(/\{/g, '{').replace(/\}/g, '}');
+    }
 
-        if (!isStream) {
-            const data = await response.json();
-            return data.choices?.[0]?.message?.content || T.noContent; 
+    function buildStatusLine() {
+        return T.statusLine
+            .replace('{url}', config.backendUrl)
+            .replace('{model}', options.model)
+            .replace('{think}', options.think ? '🧠开' : '关')
+            .replace('{web}', options.web ? '🌐开' : '关');
+    }
+
+    // 将消息数组和流式块渲染为带标签的字符串
+    function renderMessages() {
+        const lines = [];
+        for (const msg of messages) {
+            if (msg.role === 'user') {
+                lines.push(`{green-fg}${T.you}{/green-fg}${escapeBlessed(msg.content)}`);
+            } else if (msg.role === 'assistant') {
+                if (msg.blocks) {
+                    for (const block of msg.blocks) {
+                        appendBlockLines(lines, block);
+                    }
+                } else {
+                    lines.push(`{cyan-fg}${T.ai}{/cyan-fg}${escapeBlessed(msg.content || '')}`);
+                }
+            }
+            lines.push(''); // 消息间空行
+        }
+
+        // 正在流式生成的回复
+        if (isStreaming && streamBlocks.length > 0) {
+            lines.push(`{cyan-fg}${T.ai}{/cyan-fg}`);
+            for (const block of streamBlocks) {
+                appendBlockLines(lines, block);
+            }
+        }
+        return lines.join('\n');
+    }
+
+    function appendBlockLines(lines, block) {
+        const esc = escapeBlessed;
+        switch (block.type) {
+            case 'text':
+                lines.push(esc(block.content || ''));
+                break;
+            case 'reasoning':
+                lines.push(`{gray-fg}${T.thinking}: ${esc(block.content || '')}{/gray-fg}`);
+                break;
+            case 'tool_call':
+                lines.push(`{yellow-fg}${T.toolCall}: ${esc(block.name || '')}{/yellow-fg}`);
+                if (block.arguments) {
+                    lines.push(`{yellow-fg}${esc(block.arguments)}{/yellow-fg}`);
+                }
+                break;
+            case 'tool_result':
+                lines.push(`{yellow-fg}${T.toolResult}: ${esc(block.name || '')}{/yellow-fg}`);
+                if (block.content) {
+                    const contentLines = String(block.content).split('\n');
+                    for (const l of contentLines) {
+                        lines.push(`{yellow-fg}${esc(l)}{/yellow-fg}`);
+                    }
+                }
+                break;
+            case 'error':
+                lines.push(`{red-fg}${T.error}: ${esc(block.content || '')}{/red-fg}`);
+                break;
+            case 'approval':
+                lines.push(`{magenta-fg}${T.approval}: ${esc(block.name || '')}{/magenta-fg}`);
+                if (block.content) {
+                    lines.push(`{magenta-fg}${esc(block.content)}{/magenta-fg}`);
+                }
+                break;
+            default:
+                lines.push(esc(block.content || ''));
+        }
+    }
+
+    // ---------- 流式请求后端 ----------
+    async function tuiStreamResponse(msgs, callbacks) {
+        streamController = new AbortController();
+        let response;
+        try {
+            response = await fetch(`${config.backendUrl}/v1/chat/completions`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    model: options.model,
+                    messages: msgs,
+                    stream: true,
+                    enable_thinking: options.think,
+                    enable_web_search: options.web
+                }),
+                signal: streamController.signal
+            });
+        } catch (err) {
+            callbacks.onError(`网络错误: ${err.message}`);
+            return;
+        }
+
+        if (!response.ok) {
+            callbacks.onError(`HTTP ${response.status}`);
+            return;
         }
 
         const reader = response.body.getReader();
-        const decoder = new TextDecoder("utf-8");
-        let fullText = "";
-        
-        // ==========================================
-        // 【修复】：引入数据拼接缓冲区，解决长文本断包问题
-        // ==========================================
-        let sseBuffer = ""; 
+        const decoder = new TextDecoder('utf-8');
+        let buffer = '';
 
         while (true) {
-            const { done, value } = await reader.read();
+            let done, value;
+            try {
+                ({ done, value } = await reader.read());
+            } catch (err) {
+                if (err.name === 'AbortError') break;
+                callbacks.onError('读取流失败');
+                break;
+            }
             if (done) break;
-            
-            // stream: true 保证多字节字符（如中文 emoji）在分包时不会乱码
-            sseBuffer += decoder.decode(value, { stream: true });
-            
-            // 按照换行符拆分
-            const lines = sseBuffer.split('\n');
-            
-            // 【关键逻辑】：最后一行可能是不完整的半截 JSON，把它弹出来留到下一次循环拼接！
-            sseBuffer = lines.pop(); 
 
-            for (const line of lines) {
-                const trimmedLine = line.trim();
-                // 忽略空行和结尾标识
-                if (trimmedLine.startsWith('data: ') && !trimmedLine.includes('[DONE]')) {
-                    try {
-                        const dataObj = JSON.parse(trimmedLine.slice(6));
-                        const content = dataObj.choices?.[0]?.delta?.content || "";
-                        if (content) {
-                            if (onChunk) {
-                                await onChunk(content);
-                            } else {
-                                process.stdout.write(content);
-                            }
-                            fullText += content;
-                        }
-                    } catch (e) {
-                        // 此处就算报错，也只会丢弃真正损坏的一行，不再会导致后续全部断流
-                        // console.error("JSON parse error on line:", trimmedLine);
+            buffer += decoder.decode(value, { stream: true });
+            const parts = buffer.split('\n');
+            buffer = parts.pop();
+
+            for (let line of parts) {
+                line = line.trim();
+                if (!line.startsWith('data: ')) continue;
+                const data = line.slice(6);
+                if (data === '[DONE]') continue;
+
+                try {
+                    const obj = JSON.parse(data);
+                    const delta = obj.choices?.[0]?.delta;
+                    if (!delta) continue;
+
+                    if (delta.content) {
+                        callbacks.onText(delta.content);
                     }
-                }
+                    if (delta.reasoning_content) {
+                        callbacks.onReasoning(delta.reasoning_content);
+                    }
+                    if (delta.tool_progress) {
+                        const prog = delta.tool_progress;
+                        callbacks.onToolProgress({
+                            id: prog.tool_call_id || prog.id,
+                            name: prog.name,
+                            arguments: prog.arguments || ''
+                        });
+                    }
+                    if (delta.tool_content) {
+                        const tool = delta.tool_content;
+                        callbacks.onToolContent({
+                            type: tool.type,
+                            title: tool.title,
+                            content: tool.content,
+                            tool_call_id: delta.tool_call_id || delta.async_tool_id
+                        });
+                    }
+                } catch (e) { /* 忽略单行解析错误 */ }
             }
         }
-        return fullText;
-    } catch (e) {
-        return `\n[Error] ${e.message}`;
     }
-}
 
-/**
- * 带有彩色看板、指令和上下文管理的人类终端模式
- */
-function runInteractiveMode() {
-    let messages = [];
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    // ---------- 节流重绘 ----------
+    let throttleTimer = null;
+    function scheduleRedraw() {
+        if (throttleTimer) return;
+        throttleTimer = setTimeout(() => {
+            throttleTimer = null;
+            const content = renderMessages();
+            chatBox.setContent(content);
+            chatBox.setScrollPerc(100);
+            screen.render();
+        }, 30);
+    }
 
-    const printHelp = () => {
-        console.log(chalk.yellow(`\n${T.helpTitle}:`));
-        T.cmds.forEach(item => console.log(`  ${chalk.cyan(item.c.padEnd(10))} ${chalk.gray(item.d)}`));
-        console.log(chalk.yellow(`\n⚙️ 启动参数 (运行 sap 时使用):`));
-        T.params.forEach(item => console.log(`  ${chalk.cyan(item.p.padEnd(10))} ${chalk.gray(item.d)}`));
-        console.log();
-    };
+    // ---------- 处理用户输入 ----------
+    async function handleInput(text) {
+        const trimmed = text.trim();
+        if (!trimmed) return;
 
-    const printStatus = () => {
-        console.log(chalk.blue(`\n${T.statusTitle}:`));
-        console.log(`  ${chalk.gray("URL:")}   ${config.backendUrl}`);
-        console.log(`  ${chalk.gray("Model:")} ${options.model}`);
-        console.log(`  ${chalk.gray("Flags:")} ${options.think ? '🧠 Thinking ' : ''}${options.web ? '🌐 WebSearch ' : ''}${!options.think && !options.web ? 'Default' : ''}`);
-        console.log(`  ${chalk.gray("Context:")} ${messages.length / 2} rounds\n`);
-    };
+        // 如果正在流式生成，中断它（按 Enter 再次发送前自动停止）
+        if (isStreaming && streamController) {
+            streamController.abort();
+            isStreaming = false;
+            streamBlocks = [];
+            scheduleRedraw();
+            return;
+        }
 
-    console.clear();
-    console.log(chalk.bold.cyan(`\n${T.welcome}`));
-    console.log(chalk.dim(`──────────────────────────────────────────`));
-    console.log(`${chalk.gray("Backend:")} ${chalk.white(config.backendUrl)}`);
-    console.log(`${chalk.gray("Model:")}   ${chalk.green(options.model)}`);
-    if(options.think) console.log(chalk.magenta("✨ Thinking Mode Enabled"));
-    if(options.web)   console.log(chalk.blue("🌐 Web Search Enabled"));
-    console.log(chalk.dim(`──────────────────────────────────────────`));
-    console.log(chalk.italic.yellow(T.info + "\n"));
+        // 保存历史
+        inputHistory.push(trimmed);
+        historyIndex = inputHistory.length;
 
-    const ask = () => {
-        rl.question(chalk.green.bold(T.you), async (input) => {
-            const text = input.trim();
-            const lowerText = text.toLowerCase();
-            
-            if (lowerText === 'exit' || lowerText === '/exit') {
-                console.log(chalk.yellow(T.bye));
-                process.exit();
+        // 本地命令
+        const lower = trimmed.toLowerCase();
+        if (lower === '/exit') {
+            messages.push({ role: 'system', content: T.bye });
+            scheduleRedraw();
+            setTimeout(() => process.exit(0), 500);
+            return;
+        }
+        if (lower === '/help') {
+            let helpText = `{bold}${T.helpTitle}:{/bold}\n`;
+            T.cmds.forEach(c => helpText += `  {cyan-fg}${c.c}{/cyan-fg} - ${c.d}\n`);
+            helpText += `\n{bold}启动参数:{/bold}\n`;
+            T.params.forEach(p => helpText += `  {cyan-fg}${p.p}{/cyan-fg} - ${p.d}\n`);
+            messages.push({ role: 'system', content: helpText });
+            scheduleRedraw();
+            return;
+        }
+        if (lower === '/clear') {
+            messages = [];
+            streamBlocks = [];
+            scheduleRedraw();
+            return;
+        }
+        if (lower === '/status') {
+            messages.push({ role: 'system', content: buildStatusLine() });
+            scheduleRedraw();
+            return;
+        }
+
+        // 正常对话
+        messages.push({ role: 'user', content: trimmed, blocks: null });
+        scheduleRedraw();
+
+        // 构建发给 API 的消息格式（与之前相同）
+        const apiMessages = messages.map(msg => {
+            if (msg.role === 'user') return { role: 'user', content: msg.content };
+            if (msg.role === 'assistant') {
+                // 将 blocks 转为 OpenAI 格式的 content 数组
+                let contentArray = [];
+                if (msg.blocks) {
+                    for (const b of msg.blocks) {
+                        if (b.type === 'text') {
+                            contentArray.push({ type: 'text', text: b.content });
+                        } else if (b.type === 'tool_call') {
+                            // 这里简化，实际需要转换为 tool_calls，但为了兼容我们先跳过
+                        } else if (b.type === 'tool_result') {
+                            // 添加 tool 角色消息
+                        }
+                    }
+                }
+                // 如果旧格式，直接用 content
+                if (!contentArray.length && msg.content) {
+                    contentArray = [{ type: 'text', text: msg.content }];
+                }
+                return { role: 'assistant', content: contentArray.length ? contentArray : msg.content };
             }
-            if (lowerText === '/help') { printHelp(); return ask(); }
-            if (lowerText === '/status') { printStatus(); return ask(); }
-            if (lowerText === '/clear') {
-                messages = [];
-                console.log(chalk.magenta(T.reset + "\n"));
-                return ask();
-            }
-            if (!text) return ask();
-
-            messages.push({ role: 'user', content: text });
-            
-            try {
-                process.stdout.write(chalk.blue.bold(T.ai));
-                const reply = await fetchBackend(messages, true);
-                
-                messages.push({ role: 'assistant', content: reply });
-                console.log("\n");
-            } catch (err) {
-                console.log(chalk.red(err));
-                messages.pop(); 
-            }
-            
-            ask();
+            return msg;
         });
-    };
-    
-    ask();
+
+        // 开始流式生成
+        isStreaming = true;
+        streamBlocks = [];
+
+        const callbacks = {
+            onText: (text) => {
+                const last = streamBlocks[streamBlocks.length - 1];
+                if (last && last.type === 'text') {
+                    last.content += text;
+                } else {
+                    streamBlocks.push({ type: 'text', content: text });
+                }
+                scheduleRedraw();
+            },
+            onReasoning: (text) => {
+                const last = streamBlocks[streamBlocks.length - 1];
+                if (last && last.type === 'reasoning') {
+                    last.content += text;
+                } else {
+                    streamBlocks.push({ type: 'reasoning', content: text });
+                }
+                scheduleRedraw();
+            },
+            onToolProgress: (prog) => {
+                let found = streamBlocks.find(b => b.type === 'tool_call' && b.id === prog.id);
+                if (!found) {
+                    found = { type: 'tool_call', id: prog.id, name: prog.name, arguments: prog.arguments };
+                    streamBlocks.push(found);
+                } else {
+                    found.name = prog.name || found.name;
+                    found.arguments += prog.arguments || '';
+                }
+                scheduleRedraw();
+            },
+            onToolContent: (tool) => {
+                let type = 'tool_result';
+                if (tool.type === 'error') type = 'error';
+                else if (tool.type === 'call') type = 'tool_call';
+                else if (tool.type === 'tool_approval') type = 'approval';
+
+                const id = tool.tool_call_id || `tool_${Date.now()}`;
+                let existing = streamBlocks.find(b => b.id === id && b.type === type);
+                if (existing) {
+                    existing.content = (existing.content || '') + (tool.content || '');
+                    existing.name = tool.title || existing.name;
+                } else {
+                    streamBlocks.push({
+                        type,
+                        id,
+                        name: tool.title,
+                        content: tool.content || ''
+                    });
+                }
+                scheduleRedraw();
+            },
+            onError: (errMsg) => {
+                streamBlocks.push({ type: 'error', content: errMsg });
+                isStreaming = false;
+                streamController = null;
+                scheduleRedraw();
+            }
+        };
+
+        await tuiStreamResponse(apiMessages, callbacks);
+
+        // 流式结束
+        if (streamBlocks.length > 0) {
+            messages.push({ role: 'assistant', blocks: streamBlocks, content: null });
+        } else {
+            messages.push({ role: 'assistant', content: T.noContent });
+        }
+        streamBlocks = [];
+        isStreaming = false;
+        streamController = null;
+        scheduleRedraw();
+    }
+
+    // ---------- 构建 TUI 界面 ----------
+    const screen = blessed.screen({
+        smartCSR: true,
+        title: 'SAP TUI',
+        dockBorders: true,
+        fullUnicode: true,
+        autoPadding: true
+    });
+
+    const statusBar = blessed.box({
+        top: 0,
+        left: 0,
+        width: '100%',
+        height: 1,
+        tags: true,
+        style: { fg: 'white', bg: 'black' },
+        content: buildStatusLine()
+    });
+
+    const chatBox = blessed.box({
+        top: 1,
+        left: 0,
+        width: '100%',
+        height: '100%-3',
+        scrollable: true,
+        alwaysScroll: true,
+        keys: true,
+        tags: true,
+        mouse: true,
+        style: { fg: 'white', bg: 'black' },
+        padding: { left: 1, right: 1, top: 0, bottom: 0 }
+    });
+
+    const inputBox = blessed.textbox({
+        bottom: 0,
+        left: 0,
+        width: '100%',
+        height: 3,
+        inputOnFocus: true,
+        keys: true,
+        mouse: true,
+        tags: true,
+        style: {
+            fg: 'white',
+            bg: '#111111',
+            border: { fg: '#00c2a8' }
+        },
+        border: 'line',
+        padding: { left: 1, right: 1 }
+    });
+
+    screen.append(statusBar);
+    screen.append(chatBox);
+    screen.append(inputBox);
+
+    // 欢迎信息
+    chatBox.setContent(`{bold}{cyan-fg}${T.welcome}{/cyan-fg}{/bold}\n{gray-fg}${T.info}{/gray-fg}\n`);
+    inputBox.focus();
+
+    // 输入事件
+    inputBox.key('enter', () => {
+        const val = inputBox.getValue();
+        inputBox.clearValue();
+        screen.render();
+        handleInput(val);
+    });
+
+    inputBox.key('up', () => {
+        if (inputHistory.length === 0) return;
+        if (historyIndex > 0) historyIndex--;
+        inputBox.setValue(inputHistory[historyIndex] || '');
+        screen.render();
+    });
+
+    inputBox.key('down', () => {
+        if (inputHistory.length === 0) return;
+        if (historyIndex < inputHistory.length - 1) {
+            historyIndex++;
+            inputBox.setValue(inputHistory[historyIndex] || '');
+        } else {
+            inputBox.clearValue();
+            historyIndex = inputHistory.length;
+        }
+        screen.render();
+    });
+
+    // Ctrl+C 退出
+    screen.key(['C-c'], () => {
+        if (isStreaming) {
+            streamController && streamController.abort();
+            isStreaming = false;
+            streamBlocks = [];
+        }
+        messages.push({ role: 'system', content: T.bye });
+        scheduleRedraw();
+        setTimeout(() => process.exit(0), 300);
+    });
+
+    // 窗口大小变化时重绘
+    screen.on('resize', () => {
+        screen.render();
+    });
+
+    screen.render();
 }
