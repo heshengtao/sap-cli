@@ -357,30 +357,36 @@ function runTuiMode() {
                 lines.push(esc(block.content || ''));
                 break;
             case 'reasoning':
-                lines.push(`{gray-fg}${T.thinking}: ${esc(block.content || '')}{/gray-fg}`);
+                // Windows 修复：将 gray-fg 改为 blue-fg，并添加明显的引用符号
+                // 蓝色在黑色背景下通常非常清晰
+                lines.push(`{blue-fg}┃ ${T.thinking}:{/blue-fg}`);
+                const reasoningLines = String(block.content || '').split('\n');
+                for (const rl of reasoningLines) {
+                    lines.push(`{blue-fg}┃{/blue-fg} {blue-fg}${esc(rl)}{/blue-fg}`);
+                }
                 break;
             case 'tool_call':
-                lines.push(`{yellow-fg}${T.toolCall}: ${esc(block.name || '')}{/yellow-fg}`);
+                lines.push(`{yellow-fg}🛠️ ${T.toolCall}: ${esc(block.name || '')}{/yellow-fg}`);
                 if (block.arguments) {
-                    lines.push(`{yellow-fg}${esc(block.arguments)}{/yellow-fg}`);
+                    lines.push(`{yellow-fg}  ${esc(block.arguments)}{/yellow-fg}`);
                 }
                 break;
             case 'tool_result':
-                lines.push(`{yellow-fg}${T.toolResult}: ${esc(block.name || '')}{/yellow-fg}`);
+                lines.push(`{green-fg}✅ ${T.toolResult}: ${esc(block.name || '')}{/green-fg}`);
                 if (block.content) {
                     const contentLines = String(block.content).split('\n');
                     for (const l of contentLines) {
-                        lines.push(`{yellow-fg}${esc(l)}{/yellow-fg}`);
+                        lines.push(`{green-fg}  ${esc(l)}{/green-fg}`);
                     }
                 }
                 break;
             case 'error':
-                lines.push(`{red-fg}${T.error}: ${esc(block.content || '')}{/red-fg}`);
+                lines.push(`{red-fg}❌ ${T.error}: ${esc(block.content || '')}{/red-fg}`);
                 break;
             case 'approval':
-                lines.push(`{magenta-fg}${T.approval}: ${esc(block.name || '')}{/magenta-fg}`);
+                lines.push(`{magenta-fg}🛡️ ${T.approval}: ${esc(block.name || '')}{/magenta-fg}`);
                 if (block.content) {
-                    lines.push(`{magenta-fg}${esc(block.content)}{/magenta-fg}`);
+                    lines.push(`{magenta-fg}  ${esc(block.content)}{/magenta-fg}`);
                 }
                 break;
             default:
@@ -673,6 +679,7 @@ function runTuiMode() {
         padding: { left: 1, right: 1, top: 0, bottom: 0 }
     });
 
+    // 调整输入框样式（在 runTuiMode 底部）
     const inputBox = blessed.textbox({
         bottom: 0,
         left: 0,
@@ -684,8 +691,8 @@ function runTuiMode() {
         tags: true,
         style: {
             fg: 'white',
-            bg: '#111111',
-            border: { fg: '#00c2a8' }
+            bg: 'black', // 移除 #111111，改为标准 black 增加兼容性
+            border: { fg: 'cyan' } // 边框改为青色
         },
         border: 'line',
         padding: { left: 1, right: 1 }
